@@ -72,6 +72,7 @@ DEFAULT_ACCOUNT_MAP = {
     "員工持股信託": "員工持股信託",
     "MTK股票": "員工持股信託",
     "土銀數位": "土銀數位 02329",
+    "中信證券": "中信證券 07750",
 }
 
 DEFAULT_CATEGORY_MAP = {
@@ -98,6 +99,7 @@ DEFAULT_CATEGORY_MAP = {
     "醫療保健|看診": ("支出", "健康與保險", "看診"),
     "醫療保健|診所就醫": ("支出", "健康與保險", "看診"),
     "醫療保健|科林呼吸器訂閱": ("支出", "健康與保險", "科林呼吸器訂閱"),
+    "醫療保健|保險": ("支出", "健康與保險", "保險"),
     "小孩|看診": ("支出", "健康與保險", "看診"),
 
     # 汽車類 (統一名稱)
@@ -105,10 +107,14 @@ DEFAULT_CATEGORY_MAP = {
     "汽機車|維修保養": ("支出", "汽車", "保養"),
     "汽機車|停車費": ("支出", "汽車", "臨時停車費"),
     "汽機車|車位租金": ("支出", "汽車", "停車位月租"),
+    "汽機車|美容洗車": ("支出", "汽車", "洗車"),
+    "汽機車|過路費": ("支出", "汽車", "eTag加值"),
 
     # 政府類
     "稅|所得稅": ("支出", "政府", "所得稅"),
     "稅|房屋稅": ("支出", "政府", "房屋稅"),
+    "汽機車|保險與稅捐": ("支出", "政府", "牌照稅"),
+    "醫療保健|國民年金": ("支出", "政府", "國民年金"),
 
     # 娛樂/教育類
     "3C通訊|軟體服務": ("支出", "娛樂", "軟體服務"),
@@ -118,12 +124,15 @@ DEFAULT_CATEGORY_MAP = {
     "休閒娛樂|租車": ("支出", "娛樂", "旅遊交通"),
     "休閒娛樂|門票": ("支出", "娛樂", "旅遊消費"),
     "休閒娛樂|旅遊交通": ("支出", "娛樂", "旅遊交通"),
+    "休閒娛樂|電腦遊戲": ("支出", "娛樂", "遊戲"),
     "圖書刊物|書籍": ("支出", "教育", "書籍"),
 
     # 其他
     "一般收入|信用卡回饋": ("收入", "其他", "信用卡回饋"),
     "費用|手續費": ("支出", "其他", "手續費"),
+    "其他|雜支": ("支出", "其他", "其他"),
     "投資收入|利息": ("收入", "利息", "活存"),
+    "利息收入|活存利息": ("收入", "利息", "活存"),
 
     # 舊資料分類 (待整理)
     "3C通訊|電腦商品": ("支出", "舊資料分類", "3C通訊_電腦商品"),
@@ -160,6 +169,7 @@ ACCOUNT_TYPE_MAP = {
     "第一大安房貸 66395": "銀行",
     "第一定存": "銀行",
     "土銀數位 02329": "銀行",
+    "中信證券 07750": "銀行",
     "玉山Unicard 7467": "信用卡",
     "玉山Only 4481": "信用卡",
     "玉山Only附卡 2739": "信用卡",
@@ -272,7 +282,7 @@ class Rules:
     def account(self, name: str) -> str:
         if not name:
             return ""
-        return self.data["accounts"].get(name) or DEFAULT_ACCOUNT_MAP.get(name) or name
+        return self.data["accounts"].get(name.strip()) or DEFAULT_ACCOUNT_MAP.get(name.strip()) or name.strip()
 
     def remember_account(self, source: str, target: str) -> None:
         if source and target:
@@ -497,7 +507,8 @@ def title_for(row: AndroRow) -> str:
         return "停車位月租"
 
     # 5. 針對利息：區分定存與活存，一銀房貸每月1日視為定存
-    if row.category == "投資收入" and row.subcategory == "利息":
+    if (row.category == "投資收入" and row.subcategory == "利息") or \
+       (row.category == "利息收入" and row.subcategory == "活存利息"):
         if (row.from_account == "一銀房貸" or row.to_account == "一銀房貸") and row.date.endswith("01"):
             return "利息-定存"
         return "利息-活存"
@@ -686,7 +697,14 @@ def convert_salary_batch(batch: list[AndroRow], rules: Rules) -> list[dict[str, 
         if not mapped:
             continue
         tx_type, group, category = mapped
-        note = row.note
+
+        # 特殊處理：勞退自提 (原 AndroMoney 分類為醫療保健/勞保，且備註含勞退自提)
+        display_note = row.note
+        if (row.category == "醫療保健" and row.subcategory == "勞保") and "勞退自提" in row.note:
+            category = "勞退自提"
+            # 移除備註中的文字
+            display_note = row.note.replace("勞退自提", "").strip()
+
         rows.append(
             make_row(
                 tx_type=tx_type,
@@ -696,7 +714,7 @@ def convert_salary_batch(batch: list[AndroRow], rules: Rules) -> list[dict[str, 
                 group=group,
                 category=category,
                 account=rules.account("中信一般"),
-                note=f"[{{}}]{note}" if note else "[{}]",
+                note=f"[{{}}]{display_note}" if display_note else "[{}]",
                 split="s",
             )
         )
@@ -782,7 +800,7 @@ def convert_regular(row: AndroRow, rules: Rules) -> list[dict[str, str]]:
                     amount=-abs(row.amount),
                     group="(轉帳)",
                     category="(轉帳)",
-                    account=rules.account(row.from_account),
+                    account=rules.account(row.from_account or row.to_account),
                     note=note,
                     tag=tag,
                 ),
@@ -793,7 +811,7 @@ def convert_regular(row: AndroRow, rules: Rules) -> list[dict[str, str]]:
                     amount=abs(row.amount),
                     group="(轉帳)",
                     category="(轉帳)",
-                    account="員工持股信託",
+                    account=rules.account("員工持股信託"),
                     note=note,
                     tag=tag,
                 ),
@@ -827,6 +845,16 @@ def convert_regular(row: AndroRow, rules: Rules) -> list[dict[str, str]]:
         ]
 
     tx_type, group, category = rules.category(row.category, row.subcategory)
+    
+    # 1. 股利關鍵字優先處理：搜尋子分類、備註與專案欄位
+    if "股利" in (row.subcategory + row.note + row.project):
+        tx_type = "收入"
+        group = "投資"
+        category = "股利"
+    # 2. 所有的投資收入與一般收入強制轉換為收入類型 (i)，並去除空格影響
+    elif row.category.strip() in ["投資收入", "一般收入"]:
+        tx_type = "收入"
+
     custom_school_category = school_fee_category(row)
     if custom_school_category:
         group = "教育"
@@ -838,13 +866,17 @@ def convert_regular(row: AndroRow, rules: Rules) -> list[dict[str, str]]:
         category = "停車位月租"
 
     # 針對一銀房貸帳戶每月1日的定存利息特殊處理
-    if row.category == "投資收入" and row.subcategory == "利息":
+    if (row.category == "投資收入" and row.subcategory == "利息") or \
+       (row.category == "利息收入" and row.subcategory == "活存利息"):
         if (row.to_account == "一銀房貸" or row.from_account == "一銀房貸") and row.date.endswith("01"):
             group = "利息"
             category = "定存"
 
     is_income = bool(row.to_account and not row.from_account) or tx_type == "收入"
-    account = row.to_account if is_income else row.from_account
+    # 彈性選擇帳戶：若為收入但 to_account 為空，則從 from_account 抓取（適應 AndroMoney 的輸入習慣）
+    account_name = (row.to_account or row.from_account) if is_income else (row.from_account or row.to_account)
+    account = rules.account(account_name)
+
     # 根據 Bluecoins 匯入指南：
     # 支出交易 (Type 'e') 與收入交易 (Type 'i') 在匯入時皆使用正數。
     # Bluecoins 會根據 Type 自動決定增減方向。
@@ -857,7 +889,7 @@ def convert_regular(row: AndroRow, rules: Rules) -> list[dict[str, str]]:
             amount=amount,
             group=group,
             category=category,
-            account=rules.account(account),
+            account=account,
             note=note,
             tag=tag,
         )
