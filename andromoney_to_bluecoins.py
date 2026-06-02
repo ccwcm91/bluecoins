@@ -493,11 +493,13 @@ def title_for(row: AndroRow) -> str:
         return f"{row.subcategory}-{suffix}"
 
     # 4. 針對車位租金：統一轉換為「停車位月租」
-    if row.subcategory == "車位租金":
+    if row.subcategory == "車位租金" or row.note.strip() == "車位租金":
         return "停車位月租"
 
-    # 5. 針對活存利息：統一轉換為「利息-活存」
+    # 5. 針對利息：區分定存與活存，一銀房貸每月1日視為定存
     if row.category == "投資收入" and row.subcategory == "利息":
+        if (row.from_account == "一銀房貸" or row.to_account == "一銀房貸") and row.date.endswith("01"):
+            return "利息-定存"
         return "利息-活存"
 
     # 3. 如果 AndroMoney 有其他備註，則優先作為標題
@@ -575,6 +577,8 @@ def should_clear_note(row: AndroRow) -> bool:
     if row.category == "居家生活" and row.subcategory == "小渝生活費":
         return True
     if row.category == "3C通訊" and row.subcategory == "軟體服務" and row.note == "Google Cloud":
+        return True
+    if row.subcategory == "車位租金" or row.note.strip() == "車位租金":
         return True
     return False
 
@@ -827,6 +831,18 @@ def convert_regular(row: AndroRow, rules: Rules) -> list[dict[str, str]]:
     if custom_school_category:
         group = "教育"
         category = custom_school_category
+
+    # 針對 AndroMoney 分類為「停車費」但備註為「車位租金」的情況，強制轉換類別為「停車位月租」
+    if row.subcategory == "停車費" and row.note.strip() == "車位租金":
+        group = "汽車"
+        category = "停車位月租"
+
+    # 針對一銀房貸帳戶每月1日的定存利息特殊處理
+    if row.category == "投資收入" and row.subcategory == "利息":
+        if (row.to_account == "一銀房貸" or row.from_account == "一銀房貸") and row.date.endswith("01"):
+            group = "利息"
+            category = "定存"
+
     is_income = bool(row.to_account and not row.from_account) or tx_type == "收入"
     account = row.to_account if is_income else row.from_account
     # 根據 Bluecoins 匯入指南：
