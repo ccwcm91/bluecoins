@@ -73,6 +73,8 @@ DEFAULT_ACCOUNT_MAP = {
     "MTK股票": "員工持股信託",
     "土銀數位": "土銀數位 02329",
     "中信證券": "中信證券 07750",
+    "彰銀": "彰銀數位 92700",
+    "彰銀My購": "彰銀My購 5102",
 }
 
 DEFAULT_CATEGORY_MAP = {
@@ -91,8 +93,11 @@ DEFAULT_CATEGORY_MAP = {
     "居家生活|瓦斯費": ("支出", "家庭", "瓦斯費"),
     "借貸|貸款利息": ("支出", "家庭", "房貸利息"),
     "居家生活|管理費": ("支出", "家庭", "管理費"),
+    "居家生活|小渝生活費": ("支出", "家庭", "生活費"),
     "居家生活|大賣場購物": ("支出", "家庭", "大賣場購物"),
     "房屋|其他": ("支出", "房屋", "裝修"),
+    "居家生活|傢俱": ("支出", "房屋", "家具家電"),
+    "居家生活|家電用品": ("支出", "房屋", "家具家電"),
 	
     # 健康與保險
     "醫療保健|購買藥物": ("支出", "健康與保險", "買藥"),
@@ -126,13 +131,20 @@ DEFAULT_CATEGORY_MAP = {
     "休閒娛樂|旅遊交通": ("支出", "娛樂", "旅遊交通"),
     "休閒娛樂|電腦遊戲": ("支出", "娛樂", "遊戲"),
     "圖書刊物|書籍": ("支出", "教育", "書籍"),
+    "小孩|才藝費": ("支出", "教育", "才藝費"),
 
     # 其他
     "一般收入|信用卡回饋": ("收入", "其他", "信用卡回饋"),
+    "一般收入|公司薪資": ("收入", "工作", "獎金"),
+    "一般收入|其他": ("收入", "其他", "其他"),
     "費用|手續費": ("支出", "其他", "手續費"),
     "其他|雜支": ("支出", "其他", "其他"),
     "投資收入|利息": ("收入", "利息", "活存"),
     "利息收入|活存利息": ("收入", "利息", "活存"),
+
+    # 轉帳類 (雖然程式會自動判斷，但加入對應可作為備援)
+    "轉帳|一般轉帳": ("轉帳", "(轉帳)", "(轉帳)"),
+    "轉帳|信用卡費": ("轉帳", "(轉帳)", "(轉帳)"),
 
     # 舊資料分類 (待整理)
     "3C通訊|電腦商品": ("支出", "舊資料分類", "3C通訊_電腦商品"),
@@ -170,6 +182,7 @@ ACCOUNT_TYPE_MAP = {
     "第一定存": "銀行",
     "土銀數位 02329": "銀行",
     "中信證券 07750": "銀行",
+    "彰銀數位 92700": "銀行",
     "玉山Unicard 7467": "信用卡",
     "玉山Only 4481": "信用卡",
     "玉山Only附卡 2739": "信用卡",
@@ -181,6 +194,7 @@ ACCOUNT_TYPE_MAP = {
     "聯邦綠卡 1007": "信用卡",
     "國泰CUBE 5756": "信用卡",
     "中信中油 7627": "信用卡",
+    "彰銀My購 5102": "信用卡",
     "錢包": "現金",
     "家電家具": "資產",
     "員工持股信託": "投資",
@@ -320,7 +334,7 @@ class Rules:
 
 
 def category_key(main: str, sub: str) -> str:
-    return f"{main}|{sub}"
+    return f"{main.strip()}|{sub.strip()}"
 
 
 def parse_amount(value: str) -> int:
@@ -506,6 +520,10 @@ def title_for(row: AndroRow) -> str:
     if row.subcategory == "車位租金" or row.note.strip() == "車位租金":
         return "停車位月租"
 
+    # 針對診所就醫：標題統一改為「看診」
+    if row.subcategory == "診所就醫":
+        return "看診"
+
     # 5. 針對利息：區分定存與活存，一銀房貸每月1日視為定存
     if (row.category == "投資收入" and row.subcategory == "利息") or \
        (row.category == "利息收入" and row.subcategory == "活存利息"):
@@ -513,11 +531,15 @@ def title_for(row: AndroRow) -> str:
             return "利息-定存"
         return "利息-活存"
 
-    # 3. 如果 AndroMoney 有其他備註，則優先作為標題
-    if row.note.strip():
-        return row.note.strip()
+    # 3. 標題處理：優先使用備註，若無則使用子分類
+    title = row.note.strip() or row.subcategory or row.category or "未命名"
 
-    return row.subcategory or row.category or "未命名"
+    # 移除學雜費項目最前面的「周懋昀」或「周穆寬」
+    for name in ["周懋昀", "周穆寬"]:
+        if title.startswith(name):
+            title = title[len(name):].strip()
+
+    return title
 
 
 def note_for(row: AndroRow) -> str:
@@ -872,7 +894,13 @@ def convert_regular(row: AndroRow, rules: Rules) -> list[dict[str, str]]:
             group = "利息"
             category = "定存"
 
-    is_income = bool(row.to_account and not row.from_account) or tx_type == "收入"
+    # 核心邏輯：優先根據帳戶欄位存在與否判斷金流方向 (比類別關鍵字判斷更準確)
+    if row.to_account and not row.from_account:
+        tx_type = "收入"
+    elif row.from_account and not row.to_account:
+        tx_type = "支出"
+
+    is_income = tx_type == "收入"
     # 彈性選擇帳戶：若為收入但 to_account 為空，則從 from_account 抓取（適應 AndroMoney 的輸入習慣）
     account_name = (row.to_account or row.from_account) if is_income else (row.from_account or row.to_account)
     account = rules.account(account_name)

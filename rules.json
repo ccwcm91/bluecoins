@@ -1,49 +1,6 @@
 {
-  "accounts": {
-    "一銀定存": "第一定存",
-    "一銀數位": "第一永和數位 67667",
-    "中信一般": "中信雙和一般 30443",
-    "台新GoGo": "台新@GoGo 0507",
-    "玉山UBear": "玉山U Bear 3897",
-    "現金": "錢包"
-  },
-  "categories": {
-    "3C通訊|軟體服務": {
-      "category": "軟體服務",
-      "group": "娛樂",
-      "type": "e"
-    },
-    "居家生活|小渝生活費": {
-      "category": "生活費",
-      "group": "家庭",
-      "type": "e"
-    },
-    "投資收入|利息": {
-      "category": "活存利息",
-      "group": "利息收入",
-      "type": "i"
-    },
-    "稅|所得稅": {
-      "category": "所得稅",
-      "group": "政府",
-      "type": "e"
-    },
-    "轉帳|一般轉帳": {
-      "category": "(轉帳)",
-      "group": "(轉帳)",
-      "type": "t"
-    },
-    "轉帳|信用卡費": {
-      "category": "(轉帳)",
-      "group": "(轉帳)",
-      "type": "t"
-    },
-    "餐飲食品|早餐": {
-      "category": "外食三餐",
-      "group": "飲食",
-      "type": "e"
-    }
-  },
+  "accounts": {},
+  "categories": {},
   "default_blank_time": "00:00:00",
   "named_rules": {},
   "tags": {},
