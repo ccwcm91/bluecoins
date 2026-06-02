@@ -55,7 +55,7 @@ DEFAULT_ACCOUNT_MAP = {
     "玉山UBear": "玉山U Bear 3897",
     "富邦數位": "富邦營業部數位 63892",
     "台新Richart": "台新敦南Richart 64165",
-    "台新Richart子帳戶": "台新Richart子帳戶",
+    "台新Richart子帳戶": "台新敦南Richart子帳戶",
     "中信中華電信": "中信中華電信聯名卡 2597",
     "中信uniopen": "中信uniopen 6887",
     "一銀數位": "第一永和數位 67667",
@@ -71,6 +71,7 @@ DEFAULT_ACCOUNT_MAP = {
     "一銀房貸": "第一大安房貸 66395",
     "員工持股信託": "員工持股信託",
     "MTK股票": "員工持股信託",
+    "土銀數位": "土銀數位 02329",
 }
 
 DEFAULT_CATEGORY_MAP = {
@@ -102,7 +103,8 @@ DEFAULT_CATEGORY_MAP = {
     # 汽車類 (統一名稱)
     "汽機車|油錢": ("支出", "汽車", "汽油"),
     "汽機車|維修保養": ("支出", "汽車", "保養"),
-    "汽機車|停車費": ("支出", "汽車", "停車費"),
+    "汽機車|停車費": ("支出", "汽車", "臨時停車費"),
+    "汽機車|車位租金": ("支出", "汽車", "停車位月租"),
 
     # 政府類
     "稅|所得稅": ("支出", "政府", "所得稅"),
@@ -121,6 +123,7 @@ DEFAULT_CATEGORY_MAP = {
     # 其他
     "一般收入|信用卡回饋": ("收入", "其他", "信用卡回饋"),
     "費用|手續費": ("支出", "其他", "手續費"),
+    "投資收入|利息": ("收入", "利息", "活存"),
 
     # 舊資料分類 (待整理)
     "3C通訊|電腦商品": ("支出", "舊資料分類", "3C通訊_電腦商品"),
@@ -156,6 +159,7 @@ ACCOUNT_TYPE_MAP = {
     "聯邦數位 43444": "銀行",
     "第一大安房貸 66395": "銀行",
     "第一定存": "銀行",
+    "土銀數位 02329": "銀行",
     "玉山Unicard 7467": "信用卡",
     "玉山Only 4481": "信用卡",
     "玉山Only附卡 2739": "信用卡",
@@ -465,19 +469,42 @@ def make_row(
 
 
 def title_for(row: AndroRow) -> str:
+    # 1. 優先處理具有特定格式要求的備註 (如生活費)
     if row.category == "居家生活" and row.subcategory == "小渝生活費":
         parsed = parse_life_expense_title(row.note)
         if parsed:
             return parsed
+
+    # 2. 針對電話費的特殊命名邏輯：含有「小渝」則轉換為「Ivy電話費」，其餘預設為「CCW電話費」
     if row.category == "3C通訊" and row.subcategory == "電話費":
         if "小渝" in row.note:
             return "Ivy電話費"
-        if not row.note:
+        if not row.note.strip():
             return "CCW電話費"
+
+    # 3. 針對管理費：格式為「管理費-地點」，若無備註則預設為「力霸十二樓」
+    if row.category == "居家生活" and row.subcategory == "管理費":
+        suffix = row.note.strip() or "力霸十二樓"
+        return f"管理費-{suffix}"
+
+    # 4. 針對水、電、瓦斯費：格式為「子分類-地點」，若無備註則預設為「力霸十二樓」
+    if row.category == "居家生活" and row.subcategory in ["水費", "電費", "瓦斯費"]:
+        suffix = row.note.strip() or "力霸十二樓"
+        return f"{row.subcategory}-{suffix}"
+
+    # 4. 針對車位租金：統一轉換為「停車位月租」
+    if row.subcategory == "車位租金":
+        return "停車位月租"
+
+    # 5. 針對活存利息：統一轉換為「利息-活存」
     if row.category == "投資收入" and row.subcategory == "利息":
-        month = int(row.date[4:6])
-        return f"{month}月活存利息"
-    return row.note or row.subcategory or row.category or "未命名"
+        return "利息-活存"
+
+    # 3. 如果 AndroMoney 有其他備註，則優先作為標題
+    if row.note.strip():
+        return row.note.strip()
+
+    return row.subcategory or row.category or "未命名"
 
 
 def note_for(row: AndroRow) -> str:
@@ -541,6 +568,8 @@ def school_fee_category(row: AndroRow) -> str:
 def should_clear_note(row: AndroRow) -> bool:
     if row.category == "小孩" and row.subcategory == "學雜費":
         return bool(school_fee_category(row))
+    if row.category == "居家生活" and row.subcategory in ["管理費", "水費", "電費", "瓦斯費"]:
+        return True
     if row.category == "3C通訊" and row.subcategory == "電話費":
         return True
     if row.category == "居家生活" and row.subcategory == "小渝生活費":
@@ -722,7 +751,9 @@ def convert_generic_split(batch: list[AndroRow], rules: Rules) -> list[dict[str,
     for row in sorted_batch:
         converted_rows = convert_regular(row, rules)
         for cr in converted_rows:
-            cr[BC_TITLE] = common_title
+            # 除非是手續費，否則保留各自透過 title_for 產生的標題
+            if row.subcategory == "手續費":
+                cr[BC_TITLE] = common_title
             cr["(14) Split"] = "s"
             if is_overseas_fee and row.subcategory == "手續費":
                 cr[BC_CATEGORY] = "海外刷卡手續費"
@@ -834,9 +865,15 @@ def build_review_items(rows: list[AndroRow]) -> list[ReviewItem]:
     for row in rows:
         if row.index in salary_indices:
             continue
+
+        def get_group_key(r: AndroRow):
+            # 對於公共事業費用、管理費或電話費，強制視為獨立交易而不自動合併
+            if r.subcategory in ["電費", "水費", "瓦斯費", "管理費", "電話費"]:
+                return (r.date, normalize_time(r.clock), r.from_account, r.to_account, r.index)
+            return (r.date, normalize_time(r.clock), r.from_account, r.to_account)
+
         # 群組關鍵字: 日期, 規格化時間, 付款帳戶, 收款帳戶
-        key = (row.date, normalize_time(row.clock), row.from_account, row.to_account)
-        other_groups.setdefault(key, []).append(row)
+        other_groups.setdefault(get_group_key(row), []).append(row)
 
     items: list[ReviewItem] = []
     processed_indices = set()
@@ -849,7 +886,7 @@ def build_review_items(rows: list[AndroRow]) -> list[ReviewItem]:
             items.append(ReviewItem(batch, "薪資批次"))
             for b in batch: processed_indices.add(b.index)
         else:
-            key = (row.date, normalize_time(row.clock), row.from_account, row.to_account)
+            key = get_group_key(row)
             grp = other_groups[key]
             label = "拆分交易" if len(grp) > 1 else "一般交易"
             items.append(ReviewItem(grp, label))
