@@ -661,7 +661,7 @@ def convert_salary_batch(batch: list[AndroRow], rules: Rules) -> list[dict[str, 
         for row in sorted_batch
         if row.category == "一般收入"
         and row.subcategory == "公司薪資"
-        and row.note not in {"持股補助", "加班費"}
+        and row.note not in {"持股補助", "加班費", "獎學金"}
     )
     salary_transfer = next((row for row in sorted_batch if row.subcategory == "MTK帳戶分配"), None)
     salary_transfer_amount = salary_transfer.amount if salary_transfer else 0
@@ -681,7 +681,7 @@ def convert_salary_batch(batch: list[AndroRow], rules: Rules) -> list[dict[str, 
                 group="工作",
                 category="薪水",
                 account=rules.account("中信一般"),
-                note="[{}]",
+                note="",
                 split="s",
             )
         )
@@ -695,7 +695,7 @@ def convert_salary_batch(batch: list[AndroRow], rules: Rules) -> list[dict[str, 
                 group="工作",
                 category="薪水",
                 account=rules.account(salary_transfer.to_account),
-                note="[{}]",
+                note="",
                 split="s",
             )
         )
@@ -709,10 +709,28 @@ def convert_salary_batch(batch: list[AndroRow], rules: Rules) -> list[dict[str, 
                 group="工作",
                 category="加班費",
                 account=rules.account("中信一般"),
-                note="[{}]",
+                note="",
                 split="s",
             )
         )
+
+    # 處理特定補助項目 (停車費、獎學金)
+    for row in sorted_batch:
+        if row.note in ["MTK停車費", "獎學金"]:
+            display_note = row.note.replace("MTK", "")
+            rows.append(
+                make_row(
+                    tx_type="收入",
+                    date=full_date,
+                    title=title,
+                    amount=row.amount,
+                    group="工作",
+                    category="補助",
+                    account=rules.account("中信一般"),
+                    note=display_note,
+                    split="s",
+                )
+            )
 
     for row in sorted_batch:
         mapped = SALARY_DEDUCTION_MAP.get((row.category, row.subcategory))
@@ -736,7 +754,7 @@ def convert_salary_batch(batch: list[AndroRow], rules: Rules) -> list[dict[str, 
                 group=group,
                 category=category,
                 account=rules.account("中信一般"),
-                note=f"[{{}}]{display_note}" if display_note else "[{}]",
+                note=display_note,
                 split="s",
             )
         )
@@ -751,7 +769,7 @@ def convert_salary_batch(batch: list[AndroRow], rules: Rules) -> list[dict[str, 
                 group="工作",
                 category="薪水",
                 account=rules.account("員工持股信託"),
-                note="[{}]自提",
+                note="自提",
                 split="s",
             )
         )
@@ -765,7 +783,7 @@ def convert_salary_batch(batch: list[AndroRow], rules: Rules) -> list[dict[str, 
                 group="工作",
                 category="補助",
                 account=rules.account("員工持股信託"),
-                note="[{}]公提",
+                note="公提",
                 split="s",
             )
         )
