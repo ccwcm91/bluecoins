@@ -11,8 +11,8 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-from dataclasses import dataclass
-from datetime import datetime, time
+from dataclasses import dataclass, field
+from datetime import datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -85,6 +85,8 @@ DEFAULT_CATEGORY_MAP = {
     "餐飲食品|飲料": ("支出", "飲食", "飲料"),
     "餐飲食品|公司餐費": ("支出", "飲食", "公司餐費"),
     "餐飲食品|點心零嘴": ("支出", "飲食", "點心零嘴"),
+    "餐飲食品|食材": ("支出", "飲食", "食材"),
+    "餐飲食品|水果": ("支出", "飲食", "水果"),
 
     # 家庭類 (整合)
     "3C通訊|電話費": ("支出", "家庭", "電話網路費"),
@@ -92,12 +94,17 @@ DEFAULT_CATEGORY_MAP = {
     "居家生活|電費": ("支出", "家庭", "電費"),
     "居家生活|瓦斯費": ("支出", "家庭", "瓦斯費"),
     "借貸|貸款利息": ("支出", "家庭", "房貸利息"),
+    "居家生活|保全": ("支出", "家庭", "保全"),
     "居家生活|管理費": ("支出", "家庭", "管理費"),
     "居家生活|小渝生活費": ("支出", "家庭", "生活費"),
     "居家生活|大賣場購物": ("支出", "家庭", "大賣場購物"),
     "房屋|其他": ("支出", "房屋", "裝修"),
     "居家生活|傢俱": ("支出", "房屋", "家具家電"),
     "居家生活|家電用品": ("支出", "房屋", "家具家電"),
+    "稅|地價稅": ("支出", "房屋", "地價稅"),
+    "稅|房屋稅": ("支出", "房屋", "房屋稅"),
+    "政府|房屋稅": ("支出", "房屋", "房屋稅"),
+    "小孩|小孩": ("支出", "家庭", "小孩"),
 	
     # 健康與保險
     "醫療保健|購買藥物": ("支出", "健康與保險", "買藥"),
@@ -105,6 +112,7 @@ DEFAULT_CATEGORY_MAP = {
     "醫療保健|診所就醫": ("支出", "健康與保險", "看診"),
     "醫療保健|科林呼吸器訂閱": ("支出", "健康與保險", "科林呼吸器訂閱"),
     "醫療保健|保險": ("支出", "健康與保險", "保險"),
+    "醫療保健|身體檢查": ("支出", "健康與保險", "健康檢查"),
     "小孩|看診": ("支出", "健康與保險", "看診"),
 
     # 汽車類 (統一名稱)
@@ -114,11 +122,13 @@ DEFAULT_CATEGORY_MAP = {
     "汽機車|車位租金": ("支出", "汽車", "停車位月租"),
     "汽機車|美容洗車": ("支出", "汽車", "洗車"),
     "汽機車|過路費": ("支出", "汽車", "eTag加值"),
+    "汽機車|燃料費": ("支出", "汽車", "燃料費"),
+    "政府|牌照稅": ("支出", "汽車", "牌照稅"),
+    "汽機車|罰單": ("支出", "汽車", "罰單"),
 
     # 政府類
     "稅|所得稅": ("支出", "政府", "所得稅"),
-    "稅|房屋稅": ("支出", "政府", "房屋稅"),
-    "汽機車|保險與稅捐": ("支出", "政府", "牌照稅"),
+    "汽機車|保險與稅捐": ("支出", "汽車", "牌照稅"),
     "醫療保健|國民年金": ("支出", "政府", "國民年金"),
 
     # 娛樂/教育類
@@ -129,7 +139,8 @@ DEFAULT_CATEGORY_MAP = {
     "休閒娛樂|租車": ("支出", "娛樂", "旅遊交通"),
     "休閒娛樂|門票": ("支出", "娛樂", "旅遊消費"),
     "休閒娛樂|旅遊交通": ("支出", "娛樂", "旅遊交通"),
-    "休閒娛樂|電腦遊戲": ("支出", "娛樂", "遊戲"),
+    "娛樂|遊戲": ("支出", "3C產品", "遊戲"),
+    "休閒娛樂|電腦遊戲": ("支出", "3C產品", "遊戲"),
     "圖書刊物|書籍": ("支出", "教育", "書籍"),
     "小孩|才藝費": ("支出", "教育", "才藝費"),
 
@@ -140,8 +151,10 @@ DEFAULT_CATEGORY_MAP = {
     "費用|手續費": ("支出", "其他", "手續費"),
     "其他|雜支": ("支出", "其他", "其他"),
     "投資收入|利息": ("收入", "利息", "活存"),
+    "投資收入|股票": ("收入", "投資", "股利"),
     "利息收入|活存利息": ("收入", "利息", "活存"),
 
+    "人情交際|紅包": ("支出", "人情交際", "過年給紅包"),
     # 轉帳類 (雖然程式會自動判斷，但加入對應可作為備援)
     "轉帳|一般轉帳": ("轉帳", "(轉帳)", "(轉帳)"),
     "轉帳|信用卡費": ("轉帳", "(轉帳)", "(轉帳)"),
@@ -166,6 +179,7 @@ SALARY_DEDUCTION_MAP = {
     ("醫療保健", "團保"): ("支出", "健康與保險", "公司團保"),
     ("費用", "福利金"): ("支出", "其他固定支出", "福利金"),
     ("餐飲食品", "公司餐費"): ("支出", "飲食", "公司餐費"),
+    ("其他", "雜支"): ("支出", "其他", "其他"),
 }
 
 ACCOUNT_TYPE_MAP = {
@@ -198,6 +212,8 @@ ACCOUNT_TYPE_MAP = {
     "錢包": "現金",
     "家電家具": "資產",
     "員工持股信託": "投資",
+    "房屋貸款": "抵押貸款",
+    "代訂代付": "應收帳款",
 }
 
 
@@ -267,6 +283,7 @@ class RuleOption:
     name: str
     description: str
     rows: list[dict[str, str]]
+    matched_einvoice_keys: set[tuple[str, int]] = field(default_factory=set)
     saved: bool = False
 
 
@@ -423,6 +440,162 @@ def write_andromoney(path: Path, metadata: list[str], header: list[str], rows: l
         for row in rows:
             writer.writerow([row.raw.get(col, "") for col in header])
 
+
+def find_einvoice_match(date_str: str, amount: int, einvoices: dict | None, context: str = "") -> tuple[str | None, tuple[str, int, str] | None, str | None]:
+    """
+    比對電子發票。傳回 (明細內容, 匹配鍵值, 額外說明備註)。
+    如果同一天有多筆相同金額發票，會根據 context (分類/備註) 與發票內容中的關鍵字 (如 "停車") 進行過濾。
+    """
+    if not einvoices:
+        return None, None, None
+
+    target_amount = abs(amount)
+    row_date_dt = datetime.strptime(date_str, "%Y%m%d").date()
+
+    def get_filtered_match(key_date_str, offset_info=None):
+        key = (key_date_str, target_amount)
+        candidates = einvoices.get(key, [])
+        if not candidates:
+            return None
+
+        # 關鍵字分流邏輯
+        if len(candidates) > 1:
+            is_parking_tx = "停車" in context
+            parking_matches = [c for c in candidates if "停車" in c]
+            other_matches = [c for c in candidates if "停車" not in c]
+
+            if is_parking_tx and parking_matches:
+                # 交易內容含停車，優先匹配含停車內容的發票
+                matched = "\n\n---\n\n".join(parking_matches)
+                return matched, (key_date_str, target_amount, matched), offset_info
+            elif not is_parking_tx and other_matches:
+                # 交易內容不含停車，優先匹配不含停車內容的發票
+                matched = "\n\n---\n\n".join(other_matches)
+                return matched, (key_date_str, target_amount, matched), offset_info
+
+        # 只有一個候選，或無法透過關鍵字區分時，回傳全部內容
+        matched = "\n\n---\n\n".join(candidates)
+        return matched, (key_date_str, target_amount, matched), offset_info
+
+    # 第一階段：日期完全一致
+    res = get_filtered_match(date_str)
+    if res: return res
+
+    # 第二階段：彈性比對 (發票日期比記帳日期晚 1-3 天)
+    for day_offset in range(1, 4):
+        potential_invoice_date_dt = row_date_dt + timedelta(days=day_offset)
+        potential_invoice_date_str = potential_invoice_date_dt.strftime("%Y%m%d")
+        info = f"(發票日期: {potential_invoice_date_str} 比記帳日期晚 {day_offset} 天)"
+        res = get_filtered_match(potential_invoice_date_str, info)
+        if res: return res
+
+    return None, None, None
+
+
+def read_einvoices(path: Path) -> dict[tuple[str, int], list[str]]:
+    """讀取財政部電子發票 CSV (包含標準 CSV 與 Master/Detail 管道格式) 並以 (日期, 金額) 為 Key 彙整明細。"""
+    einvoices: dict[tuple[str, int], list[str]] = {}
+    if not path or not path.exists():
+        return einvoices
+    
+    lines = []
+    for encoding in ["utf-8-sig", "utf-8", "cp950", "big5"]:
+        try:
+            with path.open("r", encoding=encoding, newline="") as fh:
+                lines = fh.readlines()
+                if lines: break
+        except Exception:
+            continue
+
+    if not lines:
+        return einvoices
+
+    # 判斷是否為 M|D (Master/Detail) 管道格式
+    is_pipe_format = any(l.strip().startswith("M|") for l in lines[:20])
+
+    if is_pipe_format:
+        master_info = {}  # inv_no -> {key: (date, amt), header: str}
+        detail_map = {}   # inv_no -> [item_lines]
+        for line in lines:
+            p = [x.strip() for x in line.split('|')]
+            if len(p) < 2: continue
+            if p[0] == 'M' and len(p) >= 8:
+                carrier_name = p[1]
+                carrier_no = p[2]
+                raw_date = p[3] # YYYYMMDD
+                store_tax_id = p[4]
+                store_name = p[5]
+                inv_no = p[6]
+                total_amt = p[7]
+                
+                # 格式化日期為 YYYY-MM-DD
+                fmt_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
+                
+                header = (
+                    f"載具名稱:{carrier_name}\n"
+                    f"載具號碼:{carrier_no}\n"
+                    f"發票日期:{fmt_date}\n"
+                    f"商店統編:{store_tax_id}\n"
+                    f"商店店名:{store_name}\n"
+                    f"發票號碼:{inv_no}\n"
+                    f"總金額:{total_amt}\n"
+                    f"明細:"
+                )
+                master_info[inv_no] = {
+                    "key": (raw_date, parse_amount(total_amt)),
+                    "header": header
+                }
+            elif p[0] == 'D' and len(p) >= 4:
+                inv_no = p[1]
+                item_amt = p[2]
+                item_name = p[3]
+                detail_map.setdefault(inv_no, []).append(f"${item_amt} {item_name}")
+        
+        for inv_no, info in master_info.items():
+            items = detail_map.get(inv_no, [])
+            if items:
+                key = info["key"]
+                val = info["header"] + "\n" + "\n".join(items)
+                einvoices.setdefault(key, []).append(val)
+        return einvoices
+
+    # 處理標準表格 CSV 格式
+    header_idx = -1
+    for i, line in enumerate(lines):
+        if "發票日期" in line and ("金額" in line or "品名" in line):
+            header_idx = i
+            break
+    
+    if header_idx != -1:
+        reader = csv.DictReader(lines[header_idx:])
+        # 改以 (日期, 總額, 發票號碼) 為 Key 確保不同發票號碼明細不會被合併
+        temp_map = {} # (date, total_amt, inv_no) -> [item_lines]
+        for row in reader:
+            raw_date = row.get("發票日期", "").replace("/", "").replace("-", "").strip()
+            total_amt_str = row.get("總金額") or row.get("金額") or "0"
+            raw_total_amount = parse_amount(total_amt_str)
+            
+            inv_no = row.get("發票號碼", "")
+            item_name = row.get("品名", "").strip()
+            qty = row.get("數量", "1").strip()
+            item_amt = row.get("金額") or row.get("小計") or ""
+            
+            if not raw_date or raw_total_amount == 0 or not item_name: continue
+            key3 = (raw_date, raw_total_amount, inv_no)
+            detail = f"{item_name} x{qty}"
+            if item_amt: detail += f" ${item_amt}"
+            
+            temp_map.setdefault(key3, []).append(detail)
+            
+        for (raw_date, total_amt, inv_no), items in temp_map.items():
+            key = (raw_date, total_amt)
+            prefix = f"發票號碼:{inv_no}\n" if inv_no else ""
+            prefix += f"總金額:{total_amt}\n"
+            prefix += "明細:\n"
+            val = prefix + "\n".join(items)
+            einvoices.setdefault(key, []).append(val)
+    
+    return einvoices
 
 def read_bluecoins_header(path: Path) -> list[str]:
     if not path.exists():
@@ -643,13 +816,14 @@ def group_salary_batches(rows: list[AndroRow]) -> dict[int, list[AndroRow]]:
     return row_to_batch
 
 
-def convert_salary_batch(batch: list[AndroRow], rules: Rules) -> list[dict[str, str]]:
+def convert_salary_batch(batch: list[AndroRow], rules: Rules, einvoices: dict = None) -> tuple[list[dict[str, str]], set[tuple[str, int]]]:
     sorted_batch = sorted(batch, key=lambda row: (row.date, normalize_time(row.clock), row.id))
     base = sorted_batch[0]
     full_date, _ = bluecoins_datetime(base.date, "0300", rules.data["default_blank_time"])
     month = int(base.date[4:6])
     title = f"{month}月薪資"
     rows: list[dict[str, str]] = []
+    local_matched_keys = set()
 
     # 1. 先計算認股相關數值，以便後續在中信一般帳戶中扣除
     stock_purchase = sum(abs(row.amount) for row in sorted_batch if row.note == "MTK股票" or row.subcategory == "股票")
@@ -661,7 +835,7 @@ def convert_salary_batch(batch: list[AndroRow], rules: Rules) -> list[dict[str, 
         for row in sorted_batch
         if row.category == "一般收入"
         and row.subcategory == "公司薪資"
-        and row.note not in {"持股補助", "加班費", "獎學金"}
+        and not any(k in row.note for k in {"持股補助", "加班費", "獎學金", "獎金"})
     )
     salary_transfer = next((row for row in sorted_batch if row.subcategory == "MTK帳戶分配"), None)
     salary_transfer_amount = salary_transfer.amount if salary_transfer else 0
@@ -714,6 +888,23 @@ def convert_salary_batch(batch: list[AndroRow], rules: Rules) -> list[dict[str, 
             )
         )
 
+    # 處理獎金項目 (獨立列出，不併入薪水)
+    for row in sorted_batch:
+        if row.category == "一般收入" and row.subcategory == "公司薪資" and "獎金" in row.note:
+            rows.append(
+                make_row(
+                    tx_type="收入",
+                    date=full_date,
+                    title=title,
+                    amount=row.amount,
+                    group="工作",
+                    category="獎金",
+                    account=rules.account("中信一般"),
+                    note=row.note,
+                    split="s",
+                )
+            )
+
     # 處理特定補助項目 (停車費、獎學金)
     for row in sorted_batch:
         if row.note in ["MTK停車費", "獎學金"]:
@@ -744,6 +935,19 @@ def convert_salary_batch(batch: list[AndroRow], rules: Rules) -> list[dict[str, 
             category = "勞退自提"
             # 移除備註中的文字
             display_note = row.note.replace("勞退自提", "").strip()
+
+        # 嘗試對應電子發票 (如公司餐費、停車費)
+        tx_context = f"{row.category} {row.subcategory} {row.note}"
+        inv_detail, inv_key, inv_info = find_einvoice_match(row.date, row.amount, einvoices, tx_context)
+        if inv_detail:
+            local_matched_keys.add(inv_key)
+            if display_note:
+                display_note = f"{display_note}\n\n{inv_detail}"
+            else:
+                display_note = inv_detail
+            
+            if inv_info:
+                display_note = f"{display_note}\n{inv_info}"
 
         rows.append(
             make_row(
@@ -788,10 +992,10 @@ def convert_salary_batch(batch: list[AndroRow], rules: Rules) -> list[dict[str, 
             )
         )
 
-    return rows
+    return rows, local_matched_keys
 
 
-def convert_generic_split(batch: list[AndroRow], rules: Rules) -> list[dict[str, str]]:
+def convert_generic_split(batch: list[AndroRow], rules: Rules, einvoices: dict = None) -> tuple[list[dict[str, str]], set[tuple[str, int]]]:
     """將具有相同時間與帳戶的交易合併為 Split 格式。"""
     sorted_batch = sorted(batch, key=lambda r: r.index)
     # 尋找主項目（非手續費）作為標題基準
@@ -810,82 +1014,166 @@ def convert_generic_split(batch: list[AndroRow], rules: Rules) -> list[dict[str,
                 is_overseas_fee = True
 
     results = []
+    local_matched_keys = set()
     for row in sorted_batch:
-        converted_rows = convert_regular(row, rules)
+        converted_rows, matched_key = convert_regular(row, rules, einvoices)
+        if matched_key:
+            local_matched_keys.add(matched_key)
         for cr in converted_rows:
             # 除非是手續費，否則保留各自透過 title_for 產生的標題
             if row.subcategory == "手續費":
                 cr[BC_TITLE] = common_title
-            cr["(14) Split"] = "s"
+            if cr[BC_TYPE] != "t":
+                cr["(14) Split"] = "s"
             if is_overseas_fee and row.subcategory == "手續費":
                 cr[BC_CATEGORY] = "海外刷卡手續費"
         results.extend(converted_rows)
-    return results
+    return results, local_matched_keys
 
 
-def convert_regular(row: AndroRow, rules: Rules) -> list[dict[str, str]]:
+def convert_regular(row: AndroRow, rules: Rules, einvoices: dict = None) -> tuple[list[dict[str, str]], tuple[str, int] | None]:
     full_date, _ = bluecoins_datetime(row.date, row.clock, rules.data["default_blank_time"])
     title = title_for(row)
     note = note_for(row)
     tag = tag_for(row)
 
-    # 自動偵測 MTK 股票購入交易，轉換為轉帳至資產帳戶
-    if "MTK股票" in row.note or row.subcategory == "股票":
-        if row.from_account and not row.to_account:
-            return [
+    # 結合電子發票明細 (僅限支出交易)
+    matched_invoice_key = None
+    if einvoices and not row.to_account:
+        tx_context = f"{row.category} {row.subcategory} {row.note}"
+        einvoice_detail, inv_key, inv_info = find_einvoice_match(row.date, row.amount, einvoices, tx_context)
+        if einvoice_detail:
+            matched_invoice_key = inv_key
+            # 直接附加格式化好的發票詳細資訊
+            if note:
+                note = f"{note}\n\n{einvoice_detail}"
+            else:
+                note = einvoice_detail
+            
+            if inv_info:
+                note = f"{note}\n{inv_info}"
+
+    # 針對房貸分攤與還款的特殊處理
+    if "小渝幫付房貸" in row.note:
+        # 階段一：收入。增加銀行帳戶現金。
+        return (
+            [
+                make_row(
+                    tx_type="收入",
+                    date=full_date,
+                    title="Ivy房貸分攤款",
+                    amount=abs(row.amount),
+                    group="其他",
+                    category="分攤房貸",
+                    account=rules.account(row.to_account or row.from_account),
+                    note=note,
+                    tag=tag,
+                )
+            ],
+            matched_invoice_key,
+        )
+
+    if "小渝還本金" in row.note:
+        # 階段二：轉帳。從銀行帳戶轉入「房屋貸款」負債帳戶。
+        bank_account = rules.account(row.from_account or row.to_account)
+        debt_account = rules.account("房屋貸款")
+        return (
+            [
                 make_row(
                     tx_type="轉帳",
                     date=full_date,
-                    title="股票購入",
+                    title="Ivy房貸還本金",
                     amount=-abs(row.amount),
                     group="(轉帳)",
                     category="(轉帳)",
-                    account=rules.account(row.from_account or row.to_account),
+                    account=bank_account,
                     note=note,
                     tag=tag,
                 ),
                 make_row(
                     tx_type="轉帳",
                     date=full_date,
-                    title="股票購入",
+                    title="Ivy房貸還本金",
                     amount=abs(row.amount),
                     group="(轉帳)",
                     category="(轉帳)",
-                    account=rules.account("員工持股信託"),
+                    account=debt_account,
                     note=note,
                     tag=tag,
                 ),
-            ]
+            ],
+            matched_invoice_key,
+        )
+
+    # 自動偵測 MTK 股票購入交易，轉換為轉帳至資產帳戶
+    if "MTK股票" in row.note or row.subcategory == "股票":
+        if row.from_account and not row.to_account:
+            return (
+                [
+                    make_row(
+                        tx_type="轉帳",
+                        date=full_date,
+                        title="股票購入",
+                        amount=-abs(row.amount),
+                        group="(轉帳)",
+                        category="(轉帳)",
+                        account=rules.account(row.from_account or row.to_account),
+                        note=note,
+                        tag=tag,
+                    ),
+                    make_row(
+                        tx_type="轉帳",
+                        date=full_date,
+                        title="股票購入",
+                        amount=abs(row.amount),
+                        group="(轉帳)",
+                        category="(轉帳)",
+                        account=rules.account("員工持股信託"),
+                        note=note,
+                        tag=tag,
+                    ),
+                ],
+                matched_invoice_key,
+            )
 
     if row.from_account and row.to_account:
         transfer_title = "一般轉帳" if row.subcategory == "一般轉帳" else row.subcategory or "轉帳"
-        return [
-            make_row(
-                tx_type="轉帳",
-                date=full_date,
-                title=transfer_title,
-                amount=-abs(row.amount),
-                group="(轉帳)",
-                category="(轉帳)",
-                account=rules.account(row.from_account),
-                note=note,
-                tag=tag,
-            ),
-            make_row(
-                tx_type="轉帳",
-                date=full_date,
-                title=transfer_title,
-                amount=abs(row.amount),
-                group="(轉帳)",
-                category="(轉帳)",
-                account=rules.account(row.to_account),
-                note=note,
-                tag=tag,
-            ),
-        ]
+        return (
+            [
+                make_row(
+                    tx_type="轉帳",
+                    date=full_date,
+                    title=transfer_title,
+                    amount=-abs(row.amount),
+                    group="(轉帳)",
+                    category="(轉帳)",
+                    account=rules.account(row.from_account),
+                    note=note,
+                    tag=tag,
+                ),
+                make_row(
+                    tx_type="轉帳",
+                    date=full_date,
+                    title=transfer_title,
+                    amount=abs(row.amount),
+                    group="(轉帳)",
+                    category="(轉帳)",
+                    account=rules.account(row.to_account),
+                    note=note,
+                    tag=tag,
+                ),
+            ],
+            matched_invoice_key,
+        )
 
     tx_type, group, category = rules.category(row.category, row.subcategory)
-    
+
+    # 針對備註含「寬保險費」的特殊處理：一律歸類為保險支出
+    if "寬保險費" in row.note:
+        tx_type = "支出"
+        group = "健康與保險"
+        category = "保險"
+
     # 1. 股利關鍵字優先處理：搜尋子分類、備註與專案欄位
     if "股利" in (row.subcategory + row.note + row.project):
         tx_type = "收入"
@@ -918,6 +1206,15 @@ def convert_regular(row: AndroRow, rules: Rules) -> list[dict[str, str]]:
     elif row.from_account and not row.to_account:
         tx_type = "支出"
 
+    # 針對人情交際/紅包的特殊處理：區分收與給
+    if row.category == "人情交際" and row.subcategory == "紅包":
+        if tx_type == "收入":
+            group = "其他"
+            category = "過年收紅包"
+        else:
+            group = "人情交際"
+            category = "過年給紅包"
+
     is_income = tx_type == "收入"
     # 彈性選擇帳戶：若為收入但 to_account 為空，則從 from_account 抓取（適應 AndroMoney 的輸入習慣）
     account_name = (row.to_account or row.from_account) if is_income else (row.from_account or row.to_account)
@@ -939,15 +1236,22 @@ def convert_regular(row: AndroRow, rules: Rules) -> list[dict[str, str]]:
             note=note,
             tag=tag,
         )
-    ]
+    ], matched_invoice_key
 
 
-def convert_all(rows: list[AndroRow], rules: Rules) -> list[tuple[list[AndroRow], list[dict[str, str]], str]]:
+def convert_all(rows: list[AndroRow], rules: Rules, einvoices: dict = None) -> list[tuple[list[AndroRow], list[dict[str, str]], str]]:
     converted = []
     for item in build_review_items(rows):
-        options = candidate_rule_options(item, rules)
+        options = candidate_rule_options(item, rules, einvoices)
         converted.append((item.source_rows, options[0].rows if options else [], item.label))
     return converted
+
+
+def get_group_key(r: AndroRow):
+    # 轉帳交易、公共事業費用、管理費或電話費，強制視為獨立交易而不自動合併
+    if (r.from_account and r.to_account) or r.subcategory in ["電費", "水費", "瓦斯費", "管理費", "電話費"]:
+        return (r.date, normalize_time(r.clock), r.from_account, r.to_account, r.index)
+    return (r.date, normalize_time(r.clock), r.from_account, r.to_account)
 
 
 def build_review_items(rows: list[AndroRow]) -> list[ReviewItem]:
@@ -959,13 +1263,6 @@ def build_review_items(rows: list[AndroRow]) -> list[ReviewItem]:
     for row in rows:
         if row.index in salary_indices:
             continue
-
-        def get_group_key(r: AndroRow):
-            # 對於公共事業費用、管理費或電話費，強制視為獨立交易而不自動合併
-            if r.subcategory in ["電費", "水費", "瓦斯費", "管理費", "電話費"]:
-                return (r.date, normalize_time(r.clock), r.from_account, r.to_account, r.index)
-            return (r.date, normalize_time(r.clock), r.from_account, r.to_account)
-
         # 群組關鍵字: 日期, 規格化時間, 付款帳戶, 收款帳戶
         other_groups.setdefault(get_group_key(row), []).append(row)
 
@@ -989,7 +1286,7 @@ def build_review_items(rows: list[AndroRow]) -> list[ReviewItem]:
     return sorted(items, key=lambda item: item.newest_sort_key, reverse=True)
 
 
-def candidate_rule_options(item: ReviewItem, rules: Rules) -> list[RuleOption]:
+def candidate_rule_options(item: ReviewItem, rules: Rules, einvoices: dict = None) -> list[RuleOption]:
     signature = source_signature(item.source_rows)
     options: list[RuleOption] = []
     saved = rules.named_rule(signature)
@@ -1004,33 +1301,38 @@ def candidate_rule_options(item: ReviewItem, rules: Rules) -> list[RuleOption]:
         )
 
     if item.label == "薪資批次":
-        options.append(RuleOption("salary_batch", "薪資批次拆分", convert_salary_batch(item.source_rows, rules)))
-        options.append(RuleOption("manual_custom", "以薪資批次建議為底稿手動修改", convert_salary_batch(item.source_rows, rules)))
+        salary_rows, salary_matched_keys = convert_salary_batch(item.source_rows, rules, einvoices)
+        options.append(RuleOption("salary_batch", "薪資批次拆分", salary_rows, salary_matched_keys))
+        options.append(RuleOption("manual_custom", "以薪資批次建議為底稿手動修改", salary_rows, salary_matched_keys))
         options.append(RuleOption("skip", "略過這批資料", []))
         return options
 
     if item.label == "拆分交易":
-        options.append(RuleOption("generic_split", "合併為拆分交易(含手續費)", convert_generic_split(item.source_rows, rules)))
-        options.append(RuleOption("manual_custom", "以拆分建議為底稿手動修改", convert_generic_split(item.source_rows, rules)))
+        split_rows, split_matched_keys = convert_generic_split(item.source_rows, rules, einvoices)
+        options.append(RuleOption("generic_split", "合併為拆分交易(含手續費)", split_rows, split_matched_keys))
+        options.append(RuleOption("manual_custom", "以拆分建議為底稿手動修改", split_rows, split_matched_keys))
         options.append(RuleOption("skip", "略過這批資料", []))
         return options
 
     row = item.source_rows[0]
+    regular_rows, regular_matched_key = convert_regular(row, rules, einvoices)
+    single_matched_keys = {regular_matched_key} if regular_matched_key else set()
+
     if "MTK股票" in row.note or row.subcategory == "股票":
-        options.append(RuleOption("stock_transfer", "自動將 MTK 股票對應至資產帳戶(員工持股信託)", convert_regular(row, rules)))
+        options.append(RuleOption("stock_transfer", "自動將 MTK 股票對應至資產帳戶(員工持股信託)", regular_rows, single_matched_keys))
     if row.category == "小孩" and row.subcategory == "學雜費" and school_fee_category(row):
-        options.append(RuleOption("school_fee_by_child", "依孩子姓名分流學雜費類別", convert_regular(row, rules)))
+        options.append(RuleOption("school_fee_by_child", "依孩子姓名分流學雜費類別", regular_rows, single_matched_keys))
     if row.category == "居家生活" and row.subcategory == "小渝生活費":
-        options.append(RuleOption("life_expense_ivy", "生活費標題與 Ivy tag", convert_regular(row, rules)))
+        options.append(RuleOption("life_expense_ivy", "生活費標題與 Ivy tag", regular_rows, single_matched_keys))
     if row.from_account and row.to_account:
-        options.append(RuleOption("transfer_two_rows", "轉帳輸出為一出一入兩列", convert_regular(row, rules)))
+        options.append(RuleOption("transfer_two_rows", "轉帳輸出為一出一入兩列", regular_rows, single_matched_keys))
     elif row.to_account and not row.from_account:
-        options.append(RuleOption("income_category_mapping", "收入類別與帳戶對應", convert_regular(row, rules)))
+        options.append(RuleOption("income_category_mapping", "收入類別與帳戶對應", regular_rows, single_matched_keys))
     else:
-        options.append(RuleOption("expense_category_mapping", "支出類別與帳戶對應", convert_regular(row, rules)))
+        options.append(RuleOption("expense_category_mapping", "支出類別與帳戶對應", regular_rows, single_matched_keys))
 
     if not any(option.name == "manual_custom" for option in options):
-        options.append(RuleOption("manual_custom", "以上方第一個建議為底稿手動修改", [dict(row) for row in options[0].rows]))
+        options.append(RuleOption("manual_custom", "以上方第一個建議為底稿手動修改", [dict(row) for row in options[0].rows], options[0].matched_einvoice_keys))
     options.append(RuleOption("skip", "略過這筆資料", []))
     return options
 
@@ -1107,18 +1409,21 @@ def remember_from_review(source_rows: list[AndroRow], candidate_rows: list[dict[
 def interactive_review(
     items: Iterable[ReviewItem],
     rules: Rules,
-) -> tuple[list[dict[str, str]], list[AndroRow]]:
+    einvoices: dict = None,
+) -> tuple[list[dict[str, str]], list[AndroRow], set[tuple[str, int]]]:
     accepted: list[dict[str, str]] = []
     skipped: list[AndroRow] = []
+    matched_keys = set()
+
     for i, item in enumerate(items):
         print_source(item.source_rows, item.label)
-        options = candidate_rule_options(item, rules)
+        options = candidate_rule_options(item, rules, einvoices)
         print_rule_options(options)
         selected = choose_rule_option(options)
         if selected is None:
             for remaining_item in items[i:]:
                 skipped.extend(remaining_item.source_rows)
-            return accepted, skipped
+            return accepted, skipped, matched_keys
         if selected.name == "skip":
             skipped.extend(item.source_rows)
             continue
@@ -1130,6 +1435,10 @@ def interactive_review(
             if action == "a":
                 accepted.extend(candidate_rows)
                 remember_from_review(item.source_rows, candidate_rows, rules)
+                
+                # 記錄匹配成功的發票 Key (從選定的 RuleOption 中取得)
+                matched_keys.update(selected.matched_einvoice_keys)
+
                 if edited:
                     save = input("要把這次修改保存為下次的建議 rule 嗎？[y/N] ").strip().lower()
                     if save == "y":
@@ -1151,7 +1460,7 @@ def interactive_review(
                 if selected is None:  # User quit in rule selection
                     for remaining_item in items[i:]:
                         skipped.extend(remaining_item.source_rows)
-                    return accepted, skipped
+                    return accepted, skipped, matched_keys
                 if selected.name == "skip":
                     skipped.extend(item.source_rows)
                     break
@@ -1166,9 +1475,9 @@ def interactive_review(
                 # Save all remaining items as skipped
                 for remaining_item in items[i:]:
                     skipped.extend(remaining_item.source_rows)
-                return accepted, skipped
+                return accepted, skipped, matched_keys
             print("請輸入 a/e/r/s/q。")
-    return accepted, skipped
+    return accepted, skipped, matched_keys
 
 
 def choose_rule_option(options: list[RuleOption]) -> RuleOption | None:
@@ -1192,6 +1501,7 @@ def main() -> int:
     parser.add_argument("--bluecoins-reference", default="Bluecoins_CSV_Advanced_Template.csv", type=Path, help="Bluecoins sample CSV path")
     parser.add_argument("--output", default="bluecoins_import.csv", type=Path, help="Output Bluecoins CSV path")
     parser.add_argument("--rules", default="rules.json", type=Path, help="Persistent rules JSON path")
+    parser.add_argument("--einvoice", nargs="?", const=Path("einvoice"), type=Path, help="電子發票明細 CSV 路徑或包含多個 CSV 的目錄 (預設為 'einvoice' 資料夾)")
     parser.add_argument("--default-blank-time", help="Default time for blank AndroMoney time fields, e.g. 00:00:00")
     parser.add_argument("--date-from", help="Only convert AndroMoney rows on or after YYYY-MM-DD")
     parser.add_argument("--date-to", help="Only convert AndroMoney rows on or before YYYY-MM-DD")
@@ -1203,6 +1513,22 @@ def main() -> int:
         normalize_time(args.default_blank_time)
         rules.data["default_blank_time"] = args.default_blank_time
         rules.save()
+
+    # 彙整所有電子發票明細
+    einvoices = {}
+    if args.einvoice:
+        targets = [args.einvoice] if not args.einvoice.is_dir() else list(args.einvoice.glob("*.csv"))
+        if args.einvoice.is_dir():
+            print(f"從目錄加載發票檔: {[t.name for t in targets]}")
+            
+        for target in targets:
+            file_data = read_einvoices(target)
+            for key, val_list in file_data.items():
+                if key not in einvoices:
+                    einvoices[key] = []
+                for val in val_list:
+                    if val not in einvoices[key]:
+                        einvoices[key].append(val)
 
     metadata, header, all_rows = read_andromoney(args.andro)
     rows = filter_rows_by_date(all_rows, args.date_from, args.date_to)
@@ -1218,10 +1544,11 @@ def main() -> int:
     output_dir = args.andro.parent / f"{args.andro.stem}_output"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 在輸出檔名加上日期時間戳記
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-    output_path = output_dir / f"{args.output.stem}_{timestamp}{args.output.suffix}"
-    skipped_path = output_dir / f"skipped_{timestamp}.csv"
+    # 在輸出檔名加上縮短的日期時間戳記 (例如 bc_0605_2107.csv)
+    timestamp = datetime.now().strftime("%m%d_%H%M")
+    output_path = output_dir / f"bc_{timestamp}.csv"
+    skipped_path = output_dir / f"skip_{timestamp}.csv"
+    unmatched_einvoice_path = output_dir / f"unmatch_{timestamp}.txt"
 
     items = build_review_items(rows)
 
@@ -1237,28 +1564,54 @@ def main() -> int:
         active_items.append(item)
     items = active_items
 
+    matched_einvoice_keys = set()
+
     if args.yes:
         accepted = []
         skipped = auto_skipped_rows
         for item in items:
-            opt = candidate_rule_options(item, rules)[0]
+            opt = candidate_rule_options(item, rules, einvoices)[0]
             if opt.name == "skip":
                 skipped.extend(item.source_rows)
             else:
                 accepted.extend(opt.rows)
+                # 自動模式下記錄匹配成功的發票 (從選定的 RuleOption 中取得)
+                matched_einvoice_keys.update(opt.matched_einvoice_keys)
     else:
         print(f"讀入 {len(rows)} 筆 AndroMoney 交易，準備逐筆審核。")
-        accepted, manual_skipped = interactive_review(items, rules)
+        accepted, manual_skipped, matched_einvoice_keys = interactive_review(items, rules, einvoices)
         skipped = auto_skipped_rows + manual_skipped
 
     write_bluecoins(output_path, accepted, fields)
     if skipped:
         write_andromoney(skipped_path, metadata, header, skipped)
 
+    # 找出並輸出財政部有資料但 AndroMoney 沒對到的發票
+    unmatched_count = 0
+    if einvoices:
+        unmatched_details = []
+        for key, detail_list in einvoices.items():
+            for detail in detail_list:
+                # 比對 (日期, 金額, 完整明細內容)
+                if (key[0], key[1], detail) not in matched_einvoice_keys:
+                    inv_date_dt = datetime.strptime(key[0], "%Y%m%d").date()
+                    start = parse_filter_date(args.date_from) if args.date_from else None
+                    end = parse_filter_date(args.date_to) if args.date_to else None
+                    
+                    if (not start or inv_date_dt >= start) and (not end or inv_date_dt <= end):
+                        unmatched_details.append(f"--- 未匹配發票 (金額: {key[1]}) ---\n{detail}")
+                        unmatched_count += 1
+        
+        if unmatched_details:
+            unmatched_einvoice_path.write_text("\n\n".join(unmatched_details), encoding="utf-8")
+
     rules.save()
     print(f"已輸出 {len(accepted)} 筆 Bluecoins 候選資料：{output_path}")
     if skipped:
         print(f"已輸出 {len(skipped)} 筆略過/未處理資料：{skipped_path}")
+    if unmatched_count > 0:
+        print(f"注意：有 {unmatched_count} 筆財政部發票在 AndroMoney 中找不到對應消費，明細已輸出至：{unmatched_einvoice_path}")
+    
     print(f"規則檔：{args.rules}")
     return 0
 
