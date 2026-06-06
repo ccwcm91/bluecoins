@@ -125,6 +125,9 @@ DEFAULT_CATEGORY_MAP = {
     "汽機車|燃料費": ("支出", "汽車", "燃料費"),
     "政府|牌照稅": ("支出", "汽車", "牌照稅"),
     "汽機車|罰單": ("支出", "汽車", "罰單"),
+    "醫療保健|勞保": ("支出", "工作", "勞保"),
+    "醫療保健|團保": ("支出", "工作", "團保"),
+    "費用|福利金": ("支出", "工作", "福利金"),
 
     # 政府類
     "稅|所得稅": ("支出", "政府", "所得稅"),
@@ -138,10 +141,13 @@ DEFAULT_CATEGORY_MAP = {
     "休閒娛樂|機票": ("支出", "娛樂", "旅遊交通"),
     "休閒娛樂|租車": ("支出", "娛樂", "旅遊交通"),
     "休閒娛樂|門票": ("支出", "娛樂", "旅遊消費"),
+    "休閒娛樂|展覽": ("支出", "娛樂", "旅遊門票"),
+    "休閒娛樂|玩具小物": ("支出", "娛樂", "旅遊消費"),
     "休閒娛樂|旅遊交通": ("支出", "娛樂", "旅遊交通"),
     "娛樂|遊戲": ("支出", "3C產品", "遊戲"),
     "休閒娛樂|電腦遊戲": ("支出", "3C產品", "遊戲"),
     "圖書刊物|書籍": ("支出", "教育", "書籍"),
+    "教育學習|文具": ("支出", "教育", "文具"),
     "小孩|才藝費": ("支出", "教育", "才藝費"),
 
     # 其他
@@ -174,10 +180,10 @@ AUTO_SKIP_CATEGORIES = set()
 
 SALARY_DEDUCTION_MAP = {
     ("稅", "所得稅"): ("支出", "政府", "所得稅"),
-    ("醫療保健", "勞保"): ("支出", "政府", "勞保"),
+    ("醫療保健", "勞保"): ("支出", "工作", "勞保"),
     ("醫療保健", "健保"): ("支出", "政府", "健保"),
-    ("醫療保健", "團保"): ("支出", "健康與保險", "公司團保"),
-    ("費用", "福利金"): ("支出", "其他固定支出", "福利金"),
+    ("醫療保健", "團保"): ("支出", "工作", "團保"),
+    ("費用", "福利金"): ("支出", "工作", "福利金"),
     ("餐飲食品", "公司餐費"): ("支出", "飲食", "公司餐費"),
     ("其他", "雜支"): ("支出", "其他", "其他"),
 }
@@ -441,7 +447,13 @@ def write_andromoney(path: Path, metadata: list[str], header: list[str], rows: l
             writer.writerow([row.raw.get(col, "") for col in header])
 
 
-def find_einvoice_match(date_str: str, amount: int, einvoices: dict | None, context: str = "") -> tuple[str | None, tuple[str, int, str] | None, str | None]:
+def find_einvoice_match(
+    date_str: str,
+    amount: int,
+    einvoices: dict | None,
+    context: str = "",
+    day_range: int = 3
+) -> tuple[str | None, tuple[str, int, str] | None, str | None]:
     """
     比對電子發票。傳回 (明細內容, 匹配鍵值, 額外說明備註)。
     如果同一天有多筆相同金額發票，會根據 context (分類/備註) 與發票內容中的關鍵字 (如 "停車") 進行過濾。
@@ -455,6 +467,18 @@ def find_einvoice_match(date_str: str, amount: int, einvoices: dict | None, cont
     def get_filtered_match(key_date_str, offset_info=None):
         key = (key_date_str, target_amount)
         candidates = einvoices.get(key, [])
+        if not candidates:
+            return None
+
+        # 麥當勞(和德昌)特殊過濾：若交易情境不含飲食相關關鍵字，則排除和德昌發票
+        is_food_context = any(k in context for k in ["餐飲", "飲食", "餐費", "早餐", "午餐", "晚餐"])
+        candidates = [c for c in candidates if not ("和德昌" in c and not is_food_context)]
+        if not candidates:
+            return None
+
+        # 停車費特殊過濾：若發票內容提到停車費，但交易情境不含「停車」關鍵字，則排除該發票
+        is_parking_context = "停車" in context
+        candidates = [c for c in candidates if not (("停車費" in c or "Parking fee" in c) and not is_parking_context)]
         if not candidates:
             return None
 
@@ -481,8 +505,8 @@ def find_einvoice_match(date_str: str, amount: int, einvoices: dict | None, cont
     res = get_filtered_match(date_str)
     if res: return res
 
-    # 第二階段：彈性比對 (發票日期比記帳日期晚 1-3 天)
-    for day_offset in range(1, 4):
+    # 第二階段：彈性比對 (發票日期比記帳日期晚 1-N 天)
+    for day_offset in range(1, day_range + 1):
         potential_invoice_date_dt = row_date_dt + timedelta(days=day_offset)
         potential_invoice_date_str = potential_invoice_date_dt.strftime("%Y%m%d")
         info = f"(發票日期: {potential_invoice_date_str} 比記帳日期晚 {day_offset} 天)"
@@ -697,6 +721,12 @@ def title_for(row: AndroRow) -> str:
     if row.subcategory == "診所就醫":
         return "看診"
 
+    # 針對房貸的特殊命名邏輯
+    if any("新青安房貸" in s for s in [row.note, row.subcategory, row.merchant]):
+        return "房貸-新青安"
+    if any("一般房貸" in s for s in [row.note, row.subcategory, row.merchant]):
+        return "房貸-一般"
+
     # 5. 針對利息：區分定存與活存，一銀房貸每月1日視為定存
     if (row.category == "投資收入" and row.subcategory == "利息") or \
        (row.category == "利息收入" and row.subcategory == "活存利息"):
@@ -890,7 +920,8 @@ def convert_salary_batch(batch: list[AndroRow], rules: Rules, einvoices: dict = 
 
     # 處理獎金項目 (獨立列出，不併入薪水)
     for row in sorted_batch:
-        if row.category == "一般收入" and row.subcategory == "公司薪資" and "獎金" in row.note:
+        # 檢查子分類是否為獎金，或是備註中包含「獎金」關鍵字
+        if (row.subcategory == "獎金" or "獎金" in row.note) and row.amount > 0:
             rows.append(
                 make_row(
                     tx_type="收入",
@@ -923,22 +954,39 @@ def convert_salary_batch(batch: list[AndroRow], rules: Rules, einvoices: dict = 
                 )
             )
 
+    # 處理薪資扣項 (Deductions) - 包含所有從中信一般扣出的非轉帳支出
     for row in sorted_batch:
-        mapped = SALARY_DEDUCTION_MAP.get((row.category, row.subcategory))
-        if not mapped:
+        cat_clean = row.category.strip()
+        sub_clean = row.subcategory.strip()
+
+        # 排除非扣項：收入類、內部分配轉帳、理財股票類(已處理)
+        if cat_clean == "一般收入": continue
+        if sub_clean == "MTK帳戶分配" or row.to_account: continue
+        if row.note == "MTK股票" or sub_clean == "股票": continue
+        
+        # 規則：0300前後15分鐘給中信一般帳戶的支出都是扣項
+        if row.from_account != "中信一般":
             continue
-        tx_type, group, category = mapped
+
+        # 優先查薪資專用地圖，找不到則查通用地圖
+        mapped = SALARY_DEDUCTION_MAP.get((cat_clean, sub_clean))
+        if mapped:
+            tx_type, group, category = mapped
+        else:
+            tx_type, group, category = rules.category(cat_clean, sub_clean)
 
         # 特殊處理：勞退自提 (原 AndroMoney 分類為醫療保健/勞保，且備註含勞退自提)
         display_note = row.note
-        if (row.category == "醫療保健" and row.subcategory == "勞保") and "勞退自提" in row.note:
+        if (cat_clean == "醫療保健" and sub_clean == "勞保") and "勞退自提" in row.note:
+            group = "工作"
             category = "勞退自提"
             # 移除備註中的文字
             display_note = row.note.replace("勞退自提", "").strip()
 
         # 嘗試對應電子發票 (如公司餐費、停車費)
-        tx_context = f"{row.category} {row.subcategory} {row.note}"
-        inv_detail, inv_key, inv_info = find_einvoice_match(row.date, row.amount, einvoices, tx_context)
+        tx_context = f"{cat_clean} {sub_clean} {row.note}"
+        # 薪資批次內的扣款多為當天或近幾天，維持 3 天
+        inv_detail, inv_key, inv_info = find_einvoice_match(row.date, row.amount, einvoices, tx_context, day_range=3)
         if inv_detail:
             local_matched_keys.add(inv_key)
             if display_note:
@@ -1023,7 +1071,7 @@ def convert_generic_split(batch: list[AndroRow], rules: Rules, einvoices: dict =
             # 除非是手續費，否則保留各自透過 title_for 產生的標題
             if row.subcategory == "手續費":
                 cr[BC_TITLE] = common_title
-            if cr[BC_TYPE] != "t":
+            if cr[BC_TYPE] == "e":  # 只有支出類型的拆分才填 s
                 cr["(14) Split"] = "s"
             if is_overseas_fee and row.subcategory == "手續費":
                 cr[BC_CATEGORY] = "海外刷卡手續費"
@@ -1041,7 +1089,11 @@ def convert_regular(row: AndroRow, rules: Rules, einvoices: dict = None) -> tupl
     matched_invoice_key = None
     if einvoices and not row.to_account:
         tx_context = f"{row.category} {row.subcategory} {row.note}"
-        einvoice_detail, inv_key, inv_info = find_einvoice_match(row.date, row.amount, einvoices, tx_context)
+        
+        # 針對中華電信(電話費)延長比對天數至 10 天
+        search_range = 10 if ("電話費" in tx_context or row.from_account == "中信中華電信") else 3
+        
+        einvoice_detail, inv_key, inv_info = find_einvoice_match(row.date, row.amount, einvoices, tx_context, day_range=search_range)
         if einvoice_detail:
             matched_invoice_key = inv_key
             # 直接附加格式化好的發票詳細資訊
@@ -1248,8 +1300,9 @@ def convert_all(rows: list[AndroRow], rules: Rules, einvoices: dict = None) -> l
 
 
 def get_group_key(r: AndroRow):
-    # 轉帳交易、公共事業費用、管理費或電話費，強制視為獨立交易而不自動合併
-    if (r.from_account and r.to_account) or r.subcategory in ["電費", "水費", "瓦斯費", "管理費", "電話費"]:
+    # 簡化 key，讓所有符合時間帳戶的資料都能被納入檢查，後續在 build_review_items 過濾
+    # 針對房貸利息，強制視為獨立交易而不自動合併
+    if r.subcategory == "房貸利息":
         return (r.date, normalize_time(r.clock), r.from_account, r.to_account, r.index)
     return (r.date, normalize_time(r.clock), r.from_account, r.to_account)
 
@@ -1262,7 +1315,7 @@ def build_review_items(rows: list[AndroRow]) -> list[ReviewItem]:
     other_groups: dict[tuple, list[AndroRow]] = {}
     for row in rows:
         if row.index in salary_indices:
-            continue
+            continue        
         # 群組關鍵字: 日期, 規格化時間, 付款帳戶, 收款帳戶
         other_groups.setdefault(get_group_key(row), []).append(row)
 
@@ -1279,9 +1332,14 @@ def build_review_items(rows: list[AndroRow]) -> list[ReviewItem]:
         else:
             key = get_group_key(row)
             grp = other_groups[key]
-            label = "拆分交易" if len(grp) > 1 else "一般交易"
-            items.append(ReviewItem(grp, label))
-            for g in grp: processed_indices.add(g.index)
+            # 檢查規則：群組大於1筆，且群組內含有「手續費」
+            has_fee = any(g.subcategory == "手續費" for g in grp)
+            if len(grp) > 1 and has_fee:
+                items.append(ReviewItem(grp, "拆分交易"))
+                for g in grp: processed_indices.add(g.index)
+            else:
+                items.append(ReviewItem([row], "一般交易"))
+                processed_indices.add(row.index)
 
     return sorted(items, key=lambda item: item.newest_sort_key, reverse=True)
 
@@ -1589,7 +1647,7 @@ def main() -> int:
     # 找出並輸出財政部有資料但 AndroMoney 沒對到的發票
     unmatched_count = 0
     if einvoices:
-        unmatched_details = []
+        unmatched_by_carrier = {}  # (carrier_name, carrier_no) -> [details]
         for key, detail_list in einvoices.items():
             for detail in detail_list:
                 # 比對 (日期, 金額, 完整明細內容)
@@ -1599,18 +1657,29 @@ def main() -> int:
                     end = parse_filter_date(args.date_to) if args.date_to else None
                     
                     if (not start or inv_date_dt >= start) and (not end or inv_date_dt <= end):
-                        unmatched_details.append(f"--- 未匹配發票 (金額: {key[1]}) ---\n{detail}")
+                        # 提取載具資訊
+                        c_name = "未知載具"
+                        c_no = "未知號碼"
+                        for line in detail.split('\n'):
+                            if line.startswith("載具名稱:"): c_name = line.split(":", 1)[1].strip()
+                            elif line.startswith("載具號碼:"): c_no = line.split(":", 1)[1].strip()
+                        
+                        carrier_key = (c_name, c_no)
+                        unmatched_by_carrier.setdefault(carrier_key, []).append(f"--- 未匹配發票 (金額: {key[1]}) ---\n{detail}")
                         unmatched_count += 1
         
-        if unmatched_details:
-            unmatched_einvoice_path.write_text("\n\n".join(unmatched_details), encoding="utf-8")
+        for (c_name, c_no), details in unmatched_by_carrier.items():
+            # 清理檔案名稱不合法字元 (例如手機條碼的 / )
+            safe_no = c_no.replace("/", "").replace("\\", "").replace(":", "").strip()
+            carrier_file_path = output_dir / f"unmatch_{timestamp}_{c_name}_{safe_no}.txt"
+            carrier_file_path.write_text("\n\n".join(details), encoding="utf-8")
 
     rules.save()
     print(f"已輸出 {len(accepted)} 筆 Bluecoins 候選資料：{output_path}")
     if skipped:
         print(f"已輸出 {len(skipped)} 筆略過/未處理資料：{skipped_path}")
     if unmatched_count > 0:
-        print(f"注意：有 {unmatched_count} 筆財政部發票在 AndroMoney 中找不到對應消費，明細已輸出至：{unmatched_einvoice_path}")
+        print(f"注意：有 {unmatched_count} 筆財政部發票在 AndroMoney 中找不到對應消費，已依載具分流輸出至 {output_dir} 下的 txt 檔案中")
     
     print(f"規則檔：{args.rules}")
     return 0

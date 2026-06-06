@@ -1,8 +1,9 @@
 import sqlite3
 import pandas as pd
 import argparse
+from pathlib import Path
 
-def analyze_bluecoins_db(db_path):
+def analyze_bluecoins_db(db_path, export_csv=False, exclude_future=False):
     try:
         # 連接至 SQLite 資料庫
         conn = sqlite3.connect(db_path)
@@ -266,19 +267,19 @@ def analyze_bluecoins_db(db_path):
         # 欄位對照 Advanced Template:
         # (1)Type, (2)Date, (3)Item or Payee, (4)Amount, (5)Currency, (6)ConversionRate, 
         # (7)Parent Category, (8)Category, (9)Account Type, (10)Account, (11)Notes, (12) Label, (13) Status, (14) Split
-        
-        template_query = f"""
-            SELECT 
-                CASE t.transactionTypeID 
-                    WHEN 1 THEN 't' 
-                    WHEN 2 THEN 'i' 
-                    WHEN 3 THEN 'e' 
-                    WHEN 4 THEN (CASE WHEN t.amount > 0 THEN 'i' ELSE 'e' END)
+
+        # 定義選取欄位與來源表 (供顯示與 CSV 匯出共用)
+        sql_fields = f"""
+            CASE 
+                    WHEN t.transactionTypeID = 1 OR p.{p_name_col} = '(轉帳)' THEN 't'
+                    WHEN t.transactionTypeID = 2 THEN 'i' 
+                    WHEN t.transactionTypeID = 3 THEN 'e' 
+                    WHEN t.transactionTypeID = 4 THEN (CASE WHEN t.amount > 0 THEN 'i' ELSE 'e' END)
                     ELSE 'e' END as "(1)Type",
                 t.date as "(2)Date",
                 it.{item_name_col} as "(3)Item or Payee",
                 CASE 
-                    WHEN t.transactionTypeID = 1 THEN (t.amount / 1000000.0) 
+                    WHEN t.transactionTypeID = 1 OR p.{p_name_col} = '(轉帳)' THEN (t.amount / 1000000.0) 
                     ELSE ABS(t.amount / 1000000.0) 
                 END as "(4)Amount",
                 t.transactionCurrency as "(5)Currency",
@@ -296,6 +297,9 @@ def analyze_bluecoins_db(db_path):
                 CASE 
                     WHEN t.newSplitTransactionID != 0 THEN 's' 
                     ELSE '' END as "(14) Split"
+        """
+
+        sql_from_where = f"""
             FROM TRANSACTIONSTABLE t
             LEFT JOIN ITEMTABLE it ON t.itemID = it.itemTableID
             LEFT JOIN CHILDCATEGORYTABLE c ON t.categoryID = c.{c_pk}
@@ -303,9 +307,37 @@ def analyze_bluecoins_db(db_path):
             LEFT JOIN ACCOUNTSTABLE a ON t.accountID = a.{acc_pk}
             LEFT JOIN ACCOUNTTYPETABLE at ON a.{at_fk} = at.{at_pk}
             WHERE {is_deleted_tx_expr} != 5
-            ORDER BY t.date DESC
-            LIMIT 50;
         """
+
+        # 如果有啟用 --csv，則執行完整匯出 (不限筆數，檔名同 fydb)
+        if export_csv:
+            csv_path = Path(db_path).with_suffix('.csv')
+            csv_query = f"SELECT {sql_fields} {sql_from_where} ORDER BY t.date DESC"
+            df_csv = pd.read_sql_query(csv_query, conn).fillna('')
+            
+            # 處理金額與匯率格式，去掉不必要的 .0 (例如 4.0 -> 4)
+            for col in ['(4)Amount', '(6)ConversionRate']:
+                if col in df_csv.columns:
+                    df_csv[col] = df_csv[col].apply(lambda x: int(x) if isinstance(x, (int, float)) and x == int(x) else x)
+
+            # 處理 CSV 日期格式 (M/D/YYYY HH:MM) 以利匯入
+            try:
+                dt_series_csv = pd.to_datetime(df_csv['(2)Date'])
+                
+                # 如果啟用排除未來交易，則過濾 DataFrame
+                if exclude_future:
+                    df_csv = df_csv[dt_series_csv <= pd.Timestamp.now()].copy()
+                    # 重新取得 datetime series 以利後續格式化
+                    dt_series_csv = pd.to_datetime(df_csv['(2)Date'])
+
+                df_csv['(2)Date'] = dt_series_csv.apply(lambda x: f"{x.month}/{x.day}/{x.year} {x.hour:02d}:{x.minute:02d}")
+            except:
+                pass
+            df_csv.to_csv(csv_path, index=False, encoding='utf-8-sig')
+            print(f"  [CSV] 成功匯出 {len(df_csv)} 筆交易紀錄至: {csv_path}")
+        
+        # 建立畫面顯示用的查詢 (維持原本的 Limit 50)
+        template_query = f"SELECT {sql_fields} {sql_from_where} ORDER BY t.date DESC LIMIT 50;"
         
         df_template = pd.read_sql_query(template_query, conn).fillna('')
         
@@ -352,6 +384,8 @@ def analyze_bluecoins_db(db_path):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Analyze Bluecoins .fydb database.")
     parser.add_argument("-i", "--input", required=True, help="Path to the Bluecoins .fydb file")
+    parser.add_argument("--csv", action="store_true", help="匯出交易紀錄至 Bluecoins 格式的 CSV 檔案 (檔名同 fydb)")
+    parser.add_argument("--exclude-future", action="store_true", help="匯出 CSV 時排除日期晚於今天的預定交易")
     args = parser.parse_args()
 
-    analyze_bluecoins_db(args.input)
+    analyze_bluecoins_db(args.input, args.csv, args.exclude_future)
