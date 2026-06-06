@@ -1,0 +1,10 @@
+(1)Type,(2)Date,(3)Item or Payee,(4)Amount,(5)Currency,(6)ConversionRate,(7)Parent Category,(8)Category,(9)Account Type,(10)Account,(11)Notes,(12) Label,(13) Status,(14) Split
+i,7/6/2019,Salary,3000,USD,1,Employer,Salary,Bank,Savings,Salary for the month,salaries,,
+e,7/7/2019,Grocery items,70,USD,1,Household,Grocery,Credit Card,Citibank,,food groceries chicken eggs,C,
+e,7/8/2019,Gasoline,50,PHP,51,Car,Gasoline,Cash,Wallet,,fuel,R,
+e,7/9/2019,Electric bill,80,PHP,51,Utilities,Electricity,Bank,Checking,,,R,
+e,7/10/2019,Utilities Payment,10,USD,1,Utilities,Phone,Credit Card,Amex,phone bill,monthlyutilities,R,s
+e,7/10/2019,Utilities Payment,11,USD,1,Utilities,Cable,Credit Card,Amex,cable bill,,C,s
+e,7/10/2019,Utilities Payment,12,USD,1,Utilities,Water,Credit Card,Amex,water bill,,,s
+t,7/12/2019,My Transfer,-80,USD,1,(Transfer),(Transfer),Bank,Checking,,,C,
+t,7/12/2019,My Transfer,80,USD,1,(Transfer),(Transfer),Bank,Savings,,,R,
